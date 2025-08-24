@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI QuadBoard — Pregunta a 4 IAs en paralelo</title>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#121a33; --muted:#8ea0c0; --text:#e6ecff; --accent:#7aa2ff; --ok:#41d888; --warn:#ffcc66; --err:#ff6b6b;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Inter,Arial;color:var(--text);background:linear-gradient(180deg,#0a0f1f,#0f1630 60%,#0b1020)}
+    header.sticky{position:sticky;top:0;z-index:5;backdrop-filter: blur(8px);background:rgba(11,16,32,.75);border-bottom:1px solid rgba(255,255,255,.06)}
+    .container{max-width:1200px;margin:0 auto;padding:16px}
+    h1{margin:0;font-size:20px;display:flex;align-items:center;gap:10px}
+    .badge{font-size:12px;padding:2px 8px;border-radius:999px;background:rgba(122,162,255,.15);color:var(--accent);border:1px solid rgba(122,162,255,.35)}
+
+    .composer{display:grid;grid-template-columns:1fr auto;gap:12px;margin-top:12px}
+    textarea{width:100%;min-height:64px;max-height:40vh;resize:vertical;border:1px solid rgba(255,255,255,.12);background:#0f1730;color:var(--text);border-radius:12px;padding:12px 14px;line-height:1.35}
+    textarea::placeholder{color:#95a3c7}
+    .actions{display:flex;flex-direction:column;gap:8px}
+    button{appearance:none;border:none;background:var(--accent);color:#0a0f1f;font-weight:600;padding:12px 16px;border-radius:12px;cursor:pointer;box-shadow:0 8px 24px rgba(122,162,255,.25);transition:transform .05s ease}
+    button:active{transform:translateY(1px)}
+    .small{font-size:12px;color:var(--muted)}
+    .toggle{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none}
+    .toggle input{accent-color:var(--accent)}
+
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0 24px}
+    @media (max-width:1100px){.grid{grid-template-columns:repeat(2,1fr)}}
+    @media (max-width:640px){.grid{grid-template-columns:1fr}}
+
+    .card{background:var(--panel);border:1px solid rgba(255,255,255,.08);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;min-height:220px}
+    .card header{position:relative;background:linear-gradient(180deg,rgba(255,255,255,.04),transparent);border-bottom:1px solid rgba(255,255,255,.06)}
+    .card header .container{padding:10px 12px;display:flex;align-items:center;justify-content:space-between}
+    .model{display:flex;align-items:center;gap:8px;font-weight:700}
+    .dot{width:9px;height:9px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 2px rgba(0,0,0,.3) inset}
+    .dot.ok{background:var(--ok)}
+    .dot.err{background:var(--err)}
+    .tools{display:flex;gap:8px}
+    .toolbtn{background:transparent;border:1px solid rgba(255,255,255,.12);color:var(--text);padding:6px 10px;border-radius:10px;cursor:pointer}
+
+    .answer{padding:14px;white-space:pre-wrap;overflow:auto;flex:1}
+    .placeholder{opacity:.7;font-style:italic}
+    .loading{display:flex;gap:8px;align-items:center;color:var(--muted)}
+    .spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,.25);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    footer{opacity:.8;text-align:center;padding:18px;font-size:12px;color:var(--muted)}
+    code.inline{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;background:#0c1329;padding:2px 6px;border-radius:8px;border:1px solid rgba(255,255,255,.08)}
+  </style>
+</head>
+<body>
+  <header class="sticky">
+    <div class="container">
+      <h1>AI QuadBoard <span class="badge">ChatGPT · Gemini · Copilot* · Grok</span></h1>
+      <div class="small">*Nota: Copilot no expone API pública; esta columna usa Azure OpenAI si lo configurás en el backend.</div>
+      <div class="composer">
+        <textarea id="input" placeholder="Escribí tu pregunta… (Enter para enviar, Shift+Enter para salto de línea)"></textarea>
+        <div class="actions">
+          <button id="send">Preguntar a las 4 IAs</button>
+          <label class="toggle small"><input type="checkbox" id="remember" checked /> Mantener el contexto con cada modelo</label>
+          <div class="small">Consejo: pegá la misma repregunta y verás cómo cada IA razona distinto.</div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section class="grid">
+      <article class="card" id="card-openai">
+        <header><div class="container"><div class="model"><span class="dot" id="dot-openai"></span>ChatGPT</div><div class="tools"><button class="toolbtn" data-copy="openai">Copiar</button></div></div></header>
+        <div class="answer" id="openai">—</div>
+      </article>
+      <article class="card" id="card-gemini">
+        <header><div class="container"><div class="model"><span class="dot" id="dot-gemini"></span>Gemini</div><div class="tools"><button class="toolbtn" data-copy="gemini">Copiar</button></div></div></header>
+        <div class="answer" id="gemini">—</div>
+      </article>
+      <article class="card" id="card-copilot">
+        <header><div class="container"><div class="model"><span class="dot" id="dot-copilot"></span>Copilot*</div><div class="tools"><button class="toolbtn" data-copy="copilot">Copiar</button></div></div></header>
+        <div class="answer" id="copilot"><span class="placeholder">Copilot no tiene API pública. Si configurás Azure OpenAI en el backend, esta columna responderá.</span></div>
+      </article>
+      <article class="card" id="card-grok">
+        <header><div class="container"><div class="model"><span class="dot" id="dot-grok"></span>Grok</div><div class="tools"><button class="toolbtn" data-copy="grok">Copiar</button></div></div></header>
+        <div class="answer" id="grok">—</div>
+      </article>
+    </section>
+  </main>
+
+  <footer>
+    Hecho para comparar respuestas rápidamente. Guardamos el contexto en memoria local por modelo si activás la opción.
+    Configurá los endpoints del backend (seguro) en el objeto <code class="inline">ENDPOINTS</code>.
+  </footer>
+
+  <script>
+    const ENDPOINTS = {
+      openai: "/api/openai",
+      gemini: "/api/gemini",
+      copilot: "/api/copilot",
+      grok: "/api/grok",
+    };
+
+    const histories = { openai: [], gemini: [], copilot: [], grok: [] };
+
+    const els = {
+      input: document.getElementById('input'),
+      send: document.getElementById('send'),
+      remember: document.getElementById('remember'),
+      openai: document.getElementById('openai'),
+      gemini: document.getElementById('gemini'),
+      copilot: document.getElementById('copilot'),
+      grok: document.getElementById('grok'),
+      dOpenAI: document.getElementById('dot-openai'),
+      dGemini: document.getElementById('dot-gemini'),
+      dCopilot: document.getElementById('dot-copilot'),
+      dGrok: document.getElementById('dot-grok'),
+    };
+
+    document.querySelectorAll('.toolbtn').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const id = btn.getAttribute('data-copy');
+        const text = document.getElementById(id).innerText;
+        navigator.clipboard.writeText(text||'');
+        btn.textContent = 'Copiado';
+        setTimeout(()=>btn.textContent='Copiar',1200);
+      })
+    })
+
+    els.input.addEventListener('keydown', (e)=>{
+      if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendAll(); }
+    });
+    els.send.addEventListener('click', sendAll);
+
+    function setLoading(which, loading){
+      const dotEl = which==='openai'?els.dOpenAI:which==='gemini'?els.dGemini:which==='copilot'?els.dCopilot:els.dGrok;
+      const outEl = els[which];
+      if(loading){
+        dotEl.className = 'dot';
+        outEl.innerHTML = `<div class="loading"><span class="spinner"></span> Esperando respuesta…</div>`;
+      }else{
+        dotEl.className = 'dot ok';
+      }
+    }
+
+    function setError(which, msg){
+      const dotEl = which==='openai'?els.dOpenAI:which==='gemini'?els.dGemini:which==='copilot'?els.dCopilot:els.dGrok;
+      dotEl.className = 'dot err';
+      els[which].innerText = msg;
+    }
+
+    async function callModel(name, endpoint, userMsg){
+      try{
+        setLoading(name, true);
+        const payload = {
+          remember: !!els.remember.checked,
+          messages: histories[name].concat({role:'user', content:userMsg}).slice(-16),
+        };
+        const res = await fetch(endpoint, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+        if(!res.ok){
+          const text = await res.text();
+          throw new Error(text || res.statusText);
+        }
+        const data = await res.json();
+        const answer = (data.answer || '').trim();
+        els[name].innerText = answer || '—';
+        if(els.remember.checked && answer){
+          histories[name].push({role:'user', content:userMsg});
+          histories[name].push({role:'assistant', content:answer});
+        }
+        setLoading(name,false);
+      }catch(err){
+        console.error(name, err);
+        setError(name, `Error: ${err.message?.slice(0,300)}`);
+      }
+    }
+
+    function sendAll(){
+      const q = els.input.value.trim();
+      if(!q) return;
+      ['openai','gemini','copilot','grok'].forEach(k=> setLoading(k,true));
+      callModel('openai', ENDPOINTS.openai, q);
+      callModel('gemini', ENDPOINTS.gemini, q);
+      callModel('copilot', ENDPOINTS.copilot, q);
+      callModel('grok', ENDPOINTS.grok, q);
+      els.input.value = '';
+      els.input.focus();
+    }
+  </script>
+</body>
+</html>
